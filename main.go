@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/briandowns/spinner"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -31,20 +32,23 @@ func init() {
 }
 
 func monitorEndpoint(url string, interval int) {
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	for range ticker.C {
-		resp, err := http.Get(url)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		status := resp.StatusCode
-		if _, err := db.Exec("INSERT INTO endpoints (url, interval, last_checked, status) VALUES (?, ?, ?, ?)", url, interval, time.Now().Unix(), status); err != nil {
-			fmt.Println(err)
-			continue
-		}
-		fmt.Printf("%s - %d\n", url, status)
-	}
+    s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+    s.Start()
+	defer s.Stop()
+    for {
+        resp, err := http.Get(url)
+        if err != nil {
+            fmt.Println(err)
+            continue
+        }
+        status := resp.StatusCode
+        if _, err := db.Exec("INSERT INTO endpoints (url, interval, last_checked, status) VALUES (?, ?, ?, ?)", url, interval, time.Now().Unix(), status); err != nil {
+            fmt.Println(err)
+            continue
+        }
+        fmt.Printf("\r%s - %d", url, status)
+        time.Sleep(time.Duration(interval) * time.Second)
+    }
 }
 
 func monitorEndpoints(cmd *cobra.Command, args []string) {
@@ -82,6 +86,17 @@ func addEndpoint(cmd *cobra.Command, args []string) {
 		fmt.Println("Interval must be a number")
 		return
 	}
+	// Check if the URL already exists in the endpoints table
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM endpoints WHERE url = ?", url).Scan(&count); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if count > 0 {
+		fmt.Println("Endpoint is already being monitored")
+		return
+	}
+	// Insert the new endpoint into the endpoints table
 	if _, err := db.Exec("INSERT INTO endpoints (url, interval, last_checked, status) VALUES (?, ?, ?, ?)", url, interval, time.Now().Unix(), 0); err != nil {
 		fmt.Println(err)
 		return
